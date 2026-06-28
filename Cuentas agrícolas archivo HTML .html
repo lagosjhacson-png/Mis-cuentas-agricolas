@@ -1,0 +1,1094 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="Gestor Agrícola"/>
+  <title>🌱 Gestor Agrícola</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+    body{background:#F0F7EE;font-family:-apple-system,'Segoe UI',sans-serif;}
+    input,button{font-family:inherit;}
+    input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;}
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useRef,useEffect} = React;
+
+const CULTIVOS=[
+  {id:"maiz",     nombre:"Maíz",     emoji:"🌽",color:"#F5A623"},
+  {id:"frijoles", nombre:"Frijoles", emoji:"🫘",color:"#8B4513"},
+  {id:"tomate",   nombre:"Tomate",   emoji:"🍅",color:"#E74C3C"},
+  {id:"chiltoma", nombre:"Chiltoma", emoji:"🫑",color:"#2ECC71"},
+  {id:"papa",     nombre:"Papa",     emoji:"🥔",color:"#D4AC0D"},
+  {id:"cebolla",  nombre:"Cebolla",  emoji:"🧅",color:"#9B59B6"},
+];
+const SOCIOS=["Jhacson","Harol"];
+const LSKEY="ga_gastos_v3";
+const LSTKEY="ga_tareas_v1";
+const LSDKEY="ga_deudas_v1";
+const LSPKEY="ga_pagados_v1";
+
+const fmt=(n)=>"C$ "+Number(n||0).toLocaleString("es-NI",{minimumFractionDigits:2,maximumFractionDigits:2});
+const load=()=>{try{const r=localStorage.getItem(LSKEY);return r?JSON.parse(r):[];}catch{return[];}};
+const save=(d)=>{try{localStorage.setItem(LSKEY,JSON.stringify(d));}catch{}};
+
+function App(){
+  const [gastos,setGastos]      = useState(load);
+  const [tareas,setTareas]      = useState(()=>{try{const r=localStorage.getItem(LSTKEY);return r?JSON.parse(r):[];}catch{return[];}});
+  const saveTareas=(t)=>{try{localStorage.setItem(LSTKEY,JSON.stringify(t));}catch{}};
+  const updTareas=(t)=>{setTareas(t);saveTareas(t);};
+
+  const [deudas,setDeudas]      = useState(()=>{try{const r=localStorage.getItem(LSDKEY);return r?JSON.parse(r):[];}catch{return[];}});
+  const [pagados,setPagados]    = useState(()=>{try{const r=localStorage.getItem(LSPKEY);return r?JSON.parse(r):[];}catch{return[];}});
+  const updDeudas=(d)=>{setDeudas(d);try{localStorage.setItem(LSDKEY,JSON.stringify(d));}catch{}};
+  const updPagados=(p)=>{setPagados(p);try{localStorage.setItem(LSPKEY,JSON.stringify(p));}catch{}};
+  const [tipoCambio,setTipoCambio]= useState(()=>{try{return parseFloat(localStorage.getItem("ga_tc")||"36.50");}catch{return 36.50;}});
+  const saveTipoCambio=(v)=>{setTipoCambio(v);try{localStorage.setItem("ga_tc",String(v));}catch{}};
+  const [nuevaDeuda,setNuevaDeuda]= useState({descripcion:"",monto:"",moneda:"COR",persona:"Mamá"});
+  const [abonoMoneda,setAbonoMoneda]= useState({});
+  const [verPagados,setVerPagados]= useState(false);
+  const [mostrarFormDeuda,setMostrarFormDeuda]= useState(false);
+  const [filtroPersona,setFiltroPersona]= useState("todos");
+  const [abonoDeuda,setAbonoDeuda]= useState({});
+  const [vista,setVista]        = useState("inicio");
+  const [cultivoSel,setCultivo] = useState(CULTIVOS[0].id);
+  const [socioSel,setSocio]     = useState("Harol");
+  const [desc,setDesc]          = useState("");
+  const [monto,setMonto]        = useState("");
+  const [escaneando,setEsc]     = useState(false);
+  const [msgIA,setMsgIA]        = useState("");
+  const [filtro,setFiltro]      = useState("todos");
+  const [filtroSocio,setFiltroSocio] = useState("todos");
+  const [busqueda,setBusqueda]  = useState("");
+  const [confirmar,setConfirmar]= useState(null);
+  const [expandido,setExpandido]= useState(null);
+  const [flash,setFlash]        = useState("");
+  const [apiKey,setApiKey]      = useState(()=>{try{return localStorage.getItem("ga_ak")||"";}catch{return"";}});
+  const [verKey,setVerKey]      = useState(false);
+  // Edición
+  const [editando,setEditando]  = useState(null); // gasto completo en edición
+  const [importMsg,setImportMsg]= useState("");
+  const [nuevaTarea,setNuevaTarea]= useState({titulo:"",fecha:"",categoria:"finca",notas:""});
+  const [mostrarFormTarea,setMostrarFormTarea]= useState(false);
+  const camRef = useRef();
+  const galRef = useRef();
+  const importRef = useRef();
+
+  const ok=(msg)=>{setFlash(msg);setTimeout(()=>setFlash(""),2200);};
+  const upd=(nuevos)=>{setGastos(nuevos);save(nuevos);};
+
+  const agregar=()=>{
+    if(!monto||isNaN(parseFloat(monto)))return;
+    const g={id:Date.now(),cultivo:cultivoSel,socio:socioSel,
+      descripcion:desc||"Sin descripción",monto:parseFloat(monto),fecha:new Date().toISOString()};
+    upd([g,...gastos]);
+    setMonto("");setDesc("");setMsgIA("");
+    ok("✅ Gasto guardado");setVista("inicio");
+  };
+
+  const borrar=(id)=>upd(gastos.filter(g=>g.id!==id));
+  const borrarCiclo=(cid)=>{upd(gastos.filter(g=>g.cultivo!==cid));setConfirmar(null);ok("✅ Ciclo eliminado");};
+
+  // Abrir edición
+  const abrirEditar=(g)=>{
+    setEditando({...g, montoStr:String(g.monto)});
+    setVista("editar");
+  };
+
+  const guardarEdicion=()=>{
+    if(!editando||!editando.montoStr||isNaN(parseFloat(editando.montoStr)))return;
+    const actualizado={...editando, monto:parseFloat(editando.montoStr)};
+    delete actualizado.montoStr;
+    upd(gastos.map(g=>g.id===actualizado.id?actualizado:g));
+    setEditando(null);
+    ok("✅ Gasto actualizado");
+    setVista("historial");
+  };
+
+  const escanear=async(file)=>{
+    if(!file)return;
+    if(!apiKey){setMsgIA("⚙️ Agrega tu API Key en Ajustes para escanear.");return;}
+    setEsc(true);setMsgIA("Leyendo factura...");
+    try{
+      const b64=await new Promise((res,rej)=>{
+        const r=new FileReader();
+        r.onload=()=>res(r.result.split(",")[1]);
+        r.onerror=rej;
+        r.readAsDataURL(file);
+      });
+      const resp=await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",
+        headers:{
+          "Content-Type":"application/json",
+          "x-api-key":apiKey,
+          "anthropic-version":"2023-06-01",
+          "anthropic-dangerous-direct-browser-access":"true"
+        },
+        body:JSON.stringify({
+          model:"claude-sonnet-4-6",max_tokens:300,
+          messages:[{role:"user",content:[
+            {type:"image",source:{type:"base64",media_type:file.type||"image/jpeg",data:b64}},
+            {type:"text",text:`Analiza esta factura agrícola de Nicaragua o Colombia.
+Responde SOLO con JSON sin backticks:
+{"monto":1500.00,"descripcion":"Semillas maíz"}
+Suma todos los items para el total. Si no hay monto usa 0. Descripción máx 35 caracteres.`}
+          ]}]
+        })
+      });
+      const data=await resp.json();
+      const txt=(data.content||[]).map(i=>i.text||"").join("").replace(/```json|```/g,"").trim();
+      const p=JSON.parse(txt);
+      if(p.monto>0){setMonto(String(p.monto));setDesc(p.descripcion||"");setMsgIA("✅ Leído: "+fmt(p.monto));}
+      else setMsgIA("⚠️ No encontré monto. Ingrésalo manualmente.");
+    }catch{setMsgIA("❌ Error. Verifica tu API Key en Ajustes.");}
+    finally{setEsc(false);}
+  };
+
+  const exportarJSON=()=>{
+    const fechaStr=new Date().toLocaleDateString("es-NI",{year:"numeric",month:"2-digit",day:"2-digit"}).replace(/\//g,"-");
+    const datos={version:1,fecha:new Date().toISOString(),gastos};
+    const json=JSON.stringify(datos,null,2);
+    const blob=new Blob([json],{type:"application/json"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url;a.download=`agricultura-${fechaStr}.json`;
+    document.body.appendChild(a);a.click();
+    document.body.removeChild(a);URL.revokeObjectURL(url);
+    ok("✅ JSON exportado — úsalo para restaurar");
+  };
+
+  const exportarTXT=()=>{
+    const fechaStr=new Date().toLocaleDateString("es-NI",{year:"numeric",month:"2-digit",day:"2-digit"}).replace(/\//g,"-");
+    const fechaLeg=new Date().toLocaleDateString("es-NI",{day:"2-digit",month:"long",year:"numeric"});
+    const totJ=gastos.filter(g=>g.socio==="Jhacson").reduce((a,g)=>a+g.monto,0);
+    const totH=gastos.filter(g=>g.socio==="Harol").reduce((a,g)=>a+g.monto,0);
+    const totT=gastos.reduce((a,g)=>a+g.monto,0);
+    let txt=`╔══════════════════════════════╗\n`;
+    txt+=`║   GESTOR AGRÍCOLA            ║\n`;
+    txt+=`║   Jhacson & Harol            ║\n`;
+    txt+=`╚══════════════════════════════╝\n`;
+    txt+=`Exportado: ${fechaLeg}\n`;
+    txt+=`Total registros: ${gastos.length}\n\n`;
+    txt+=`══ RESUMEN GENERAL ══\n`;
+    txt+=`Jhacson:  ${fmt(totJ)}\n`;
+    txt+=`Harol:    ${fmt(totH)}\n`;
+    txt+=`TOTAL:    ${fmt(totT)}\n\n`;
+    CULTIVOS.forEach(c=>{
+      const gs=gastos.filter(g=>g.cultivo===c.id);
+      if(!gs.length)return;
+      const t=gs.reduce((a,g)=>a+g.monto,0);
+      const j=gs.filter(g=>g.socio==="Jhacson").reduce((a,g)=>a+g.monto,0);
+      const h=gs.filter(g=>g.socio==="Harol").reduce((a,g)=>a+g.monto,0);
+      txt+=`══ ${c.emoji} ${c.nombre.toUpperCase()} — ${fmt(t)} ══\n`;
+      txt+=`   Jhacson: ${fmt(j)} | Harol: ${fmt(h)}\n`;
+      gs.forEach(g=>{
+        const fecha=new Date(g.fecha).toLocaleDateString("es-NI",{day:"2-digit",month:"short",year:"numeric"});
+        txt+=`   • ${g.descripcion}\n`;
+        txt+=`     ${g.socio} — ${fmt(g.monto)} — ${fecha}\n`;
+      });
+      txt+=`\n`;
+    });
+    txt+=`══════════════════════════════\n`;
+    txt+=`Archivo generado por Gestor Agrícola\n`;
+    const blob=new Blob([txt],{type:"text/plain;charset=utf-8"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url;a.download=`agricultura-${fechaStr}.txt`;
+    document.body.appendChild(a);a.click();
+    document.body.removeChild(a);URL.revokeObjectURL(url);
+    ok("✅ TXT exportado — ábrelo para leer");
+  };
+
+  const importar=(file)=>{
+    if(!file)return;
+    const r=new FileReader();
+    r.onload=e=>{
+      try{
+        const datos=JSON.parse(e.target.result);
+        if(!datos.gastos||!Array.isArray(datos.gastos))throw new Error("Formato inválido");
+        upd(datos.gastos);
+        setImportMsg("✅ "+datos.gastos.length+" registros restaurados correctamente.");
+      }catch{setImportMsg("❌ Archivo inválido. Usa solo archivos exportados de esta app.");}
+    };
+    r.readAsText(file);
+    importRef.current.value="";
+  };
+
+  const totSocio=(s)=>gastos.filter(g=>g.socio===s).reduce((a,g)=>a+g.monto,0);
+  const total=gastos.reduce((a,g)=>a+g.monto,0);
+  const filtrados=gastos
+    .filter(g=>filtro==="todos"||g.cultivo===filtro)
+    .filter(g=>filtroSocio==="todos"||g.socio===filtroSocio)
+    .filter(g=>busqueda===""||g.descripcion.toLowerCase().includes(busqueda.toLowerCase()));
+  const cul=(id)=>CULTIVOS.find(c=>c.id===id)||CULTIVOS[0];
+  const card={background:"#fff",borderRadius:14,padding:16,boxShadow:"0 2px 8px rgba(0,0,0,.07)",marginBottom:12};
+
+  const navItems=[
+    ["inicio","🏠","Inicio"],
+    ["agregar","➕","Agregar"],
+    ["historial","📋","Historial"],
+    ["tareas","📅","Tareas"],
+    ["deudas","💰","Deudas"],
+    ["resumen","📊","Resumen"],
+    ["ajustes","⚙️","Ajustes"]
+  ];
+
+  return(
+  <div style={{fontFamily:"-apple-system,sans-serif",background:"#F0F7EE",minHeight:"100vh",maxWidth:480,margin:"0 auto",paddingBottom:90}}>
+
+    {/* HEADER */}
+    <div style={{background:"linear-gradient(135deg,#2D6A4F,#40916C)",color:"#fff",padding:"48px 18px 14px",position:"sticky",top:0,zIndex:10}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+        <div>
+          <div style={{fontSize:10,opacity:.7,letterSpacing:2,textTransform:"uppercase"}}>Gestor Agrícola</div>
+          <div style={{fontSize:21,fontWeight:700,marginTop:2}}>🌱 Jhacson & Harol</div>
+        </div>
+        {flash&&<div style={{fontSize:11,background:"rgba(255,255,255,.2)",borderRadius:8,padding:"4px 10px",marginTop:6}}>{flash}</div>}
+      </div>
+      <div style={{display:"flex",gap:5,marginTop:12}}>
+        {navItems.map(([v,ic,lb])=>(
+          <button key={v} onClick={()=>setVista(v)}
+            style={{flex:1,padding:"6px 1px",borderRadius:8,border:"none",cursor:"pointer",fontSize:9,fontWeight:600,
+              background:(vista===v||( v==="agregar"&&vista==="editar"))&&v==="agregar"?"rgba(255,255,255,.95)":vista===v?"rgba(255,255,255,.95)":"rgba(255,255,255,.15)",
+              color:vista===v?"#2D6A4F":"#fff"}}>
+            {ic}<br/>{lb}
+          </button>
+        ))}
+      </div>
+    </div>
+
+    <div style={{padding:14}}>
+
+      {/* ══ INICIO ══ */}
+      {vista==="inicio"&&<>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+          {[{s:"Jhacson",c:"#2D6A4F"},{s:"Harol",c:"#40916C"}].map(({s,c})=>(
+            <div key={s} style={card}>
+              <div style={{fontSize:11,color:"#888",marginBottom:3}}>💼 {s}</div>
+              <div style={{fontSize:18,fontWeight:700,color:c}}>{fmt(totSocio(s))}</div>
+              <div style={{fontSize:11,color:"#aaa",marginTop:2}}>{gastos.filter(g=>g.socio===s).length} movimientos</div>
+            </div>
+          ))}
+        </div>
+        <div style={card}>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+            <span style={{fontWeight:700,color:"#2D6A4F"}}>Total invertido</span>
+            <span style={{fontWeight:800,fontSize:17,color:"#1B4332"}}>{fmt(total)}</span>
+          </div>
+          <div style={{background:"#E8F5E9",borderRadius:8,height:16,overflow:"hidden"}}>
+            {total>0&&<div style={{width:`${(totSocio("Jhacson")/total*100).toFixed(1)}%`,
+              background:"linear-gradient(90deg,#2D6A4F,#52B788)",height:"100%",transition:"width .5s",
+              display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,color:"#fff",fontWeight:700}}>
+              {(totSocio("Jhacson")/total*100).toFixed(0)}%
+            </div>}
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",marginTop:4,fontSize:11,color:"#888"}}>
+            <span>🟢 Jhacson {total>0?(totSocio("Jhacson")/total*100).toFixed(0):50}%</span>
+            <span>🟩 Harol {total>0?(totSocio("Harol")/total*100).toFixed(0):50}%</span>
+          </div>
+        </div>
+
+        {/* Por cultivo — con desglose por socio */}
+        <div style={{fontWeight:700,color:"#2D6A4F",marginBottom:8}}>Por cultivo</div>
+        {CULTIVOS.map(c=>{
+          const t=gastos.filter(g=>g.cultivo===c.id).reduce((a,g)=>a+g.monto,0);
+          if(!t)return null;
+          const j=gastos.filter(g=>g.cultivo===c.id&&g.socio==="Jhacson").reduce((a,g)=>a+g.monto,0);
+          const h=gastos.filter(g=>g.cultivo===c.id&&g.socio==="Harol").reduce((a,g)=>a+g.monto,0);
+          return<div key={c.id} style={{...card,padding:"12px 14px"}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+              <span style={{fontSize:22}}>{c.emoji}</span>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:700,color:"#1B4332"}}>{c.nombre}</div>
+                <div style={{fontSize:11,color:"#aaa"}}>{gastos.filter(g=>g.cultivo===c.id).length} registros</div>
+              </div>
+              <div style={{fontWeight:800,color:c.color,fontSize:15}}>{fmt(t)}</div>
+            </div>
+            {/* Desglose socios */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+              <div style={{background:"#F0FFF4",borderRadius:8,padding:"7px 10px",borderLeft:`3px solid #2D6A4F`}}>
+                <div style={{fontSize:10,color:"#888",marginBottom:2}}>💼 Jhacson</div>
+                <div style={{fontWeight:700,color:"#2D6A4F",fontSize:13}}>{fmt(j)}</div>
+              </div>
+              <div style={{background:"#F0FFF4",borderRadius:8,padding:"7px 10px",borderLeft:`3px solid #52B788`}}>
+                <div style={{fontSize:10,color:"#888",marginBottom:2}}>💼 Harol</div>
+                <div style={{fontWeight:700,color:"#40916C",fontSize:13}}>{fmt(h)}</div>
+              </div>
+            </div>
+          </div>;
+        })}
+        {total===0&&<div style={{textAlign:"center",padding:40,color:"#aaa"}}>
+          <div style={{fontSize:48}}>🌿</div>
+          <div style={{marginTop:8}}>Aún no hay registros.<br/>¡Agrega el primer gasto!</div>
+        </div>}
+      </>}
+
+      {/* ══ AGREGAR ══ */}
+      {vista==="agregar"&&<div style={{background:"#fff",borderRadius:16,padding:18,boxShadow:"0 2px 12px rgba(0,0,0,.08)"}}>
+        <div style={{fontWeight:700,fontSize:17,color:"#1B4332",marginBottom:18}}>➕ Nuevo Gasto</div>
+
+        <label style={{fontSize:12,color:"#666",fontWeight:600,display:"block",marginBottom:6}}>CULTIVO</label>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7,marginBottom:14}}>
+          {CULTIVOS.map(c=>(
+            <button key={c.id} onClick={()=>setCultivo(c.id)}
+              style={{padding:"9px 2px",borderRadius:10,border:`2px solid ${cultivoSel===c.id?c.color:"#E8F5E9"}`,
+                background:cultivoSel===c.id?c.color+"18":"#fff",cursor:"pointer",fontSize:12,fontWeight:600,
+                color:cultivoSel===c.id?c.color:"#555"}}>
+              {c.emoji} {c.nombre}
+            </button>
+          ))}
+        </div>
+
+        <label style={{fontSize:12,color:"#666",fontWeight:600,display:"block",marginBottom:6}}>QUIÉN PAGÓ</label>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>
+          {SOCIOS.map(s=>(
+            <button key={s} onClick={()=>setSocio(s)}
+              style={{padding:11,borderRadius:10,border:`2px solid ${socioSel===s?"#2D6A4F":"#E8F5E9"}`,
+                background:socioSel===s?"#E8F5E9":"#fff",cursor:"pointer",fontWeight:700,
+                color:socioSel===s?"#2D6A4F":"#555"}}>
+              💼 {s}
+            </button>
+          ))}
+        </div>
+
+        <label style={{fontSize:12,color:"#666",fontWeight:600,display:"block",marginBottom:6}}>FACTURA (opcional)</label>
+        <input type="file" accept="image/*" capture="environment" ref={camRef} style={{display:"none"}}
+          onChange={e=>{if(e.target.files[0])escanear(e.target.files[0]);e.target.value="";}}/>
+        <input type="file" accept="image/*" ref={galRef} style={{display:"none"}}
+          onChange={e=>{if(e.target.files[0])escanear(e.target.files[0]);e.target.value="";}}/>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+          <button onClick={()=>camRef.current.click()} disabled={escaneando}
+            style={{padding:"11px 4px",borderRadius:10,border:"2px dashed #95D5B2",
+              background:"#F0FFF4",cursor:"pointer",color:"#2D6A4F",fontWeight:600,fontSize:13}}>
+            📷 Tomar foto
+          </button>
+          <button onClick={()=>galRef.current.click()} disabled={escaneando}
+            style={{padding:"11px 4px",borderRadius:10,border:"2px dashed #95D5B2",
+              background:"#F0FFF4",cursor:"pointer",color:"#2D6A4F",fontWeight:600,fontSize:13}}>
+            🖼️ Galería
+          </button>
+        </div>
+        {escaneando&&<div style={{padding:"9px 12px",borderRadius:8,background:"#E8F5E9",color:"#2D6A4F",fontSize:13,textAlign:"center",marginBottom:8}}>⏳ Leyendo factura...</div>}
+        {msgIA&&!escaneando&&<div style={{padding:"9px 12px",borderRadius:8,marginBottom:8,
+          background:msgIA.startsWith("✅")?"#E8F5E9":msgIA.startsWith("⚙️")?"#EEF":"#FFF3CD",
+          color:msgIA.startsWith("✅")?"#2D6A4F":msgIA.startsWith("⚙️")?"#446":"#856404",fontSize:13}}>{msgIA}
+          {msgIA.startsWith("⚙️")&&<span onClick={()=>setVista("ajustes")} style={{marginLeft:8,textDecoration:"underline",cursor:"pointer",fontWeight:700}}>Ir a Ajustes →</span>}
+        </div>}
+
+        <label style={{fontSize:12,color:"#666",fontWeight:600,display:"block",marginBottom:6,marginTop:4}}>MONTO (C$)</label>
+        <input type="number" inputMode="decimal" value={monto} onChange={e=>setMonto(e.target.value)} placeholder="0.00"
+          style={{width:"100%",padding:"13px 14px",borderRadius:10,border:"2px solid #E8F5E9",
+            fontSize:26,fontWeight:700,color:"#1B4332",outline:"none",background:"#FAFFF9",marginBottom:12}}/>
+
+        <label style={{fontSize:12,color:"#666",fontWeight:600,display:"block",marginBottom:6}}>DESCRIPCIÓN</label>
+        <input type="text" value={desc} onChange={e=>setDesc(e.target.value)}
+          placeholder="Ej: Semillas, fertilizante, mano de obra..."
+          style={{width:"100%",padding:"11px 14px",borderRadius:10,border:"2px solid #E8F5E9",
+            fontSize:14,color:"#333",outline:"none",marginBottom:18}}/>
+
+        <button onClick={agregar} disabled={!monto}
+          style={{width:"100%",padding:15,borderRadius:12,border:"none",
+            background:monto?"linear-gradient(135deg,#2D6A4F,#52B788)":"#ccc",
+            color:"#fff",fontSize:16,fontWeight:700,cursor:monto?"pointer":"default"}}>
+          💾 Guardar Gasto
+        </button>
+      </div>}
+
+      {/* ══ EDITAR ══ */}
+      {vista==="editar"&&editando&&<div style={{background:"#fff",borderRadius:16,padding:18,boxShadow:"0 2px 12px rgba(0,0,0,.08)"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
+          <button onClick={()=>{setVista("historial");setEditando(null);}}
+            style={{background:"#E8F5E9",border:"none",borderRadius:8,padding:"6px 12px",cursor:"pointer",color:"#2D6A4F",fontWeight:700}}>
+            ← Volver
+          </button>
+          <div style={{fontWeight:700,fontSize:17,color:"#1B4332"}}>✏️ Editar Gasto</div>
+        </div>
+
+        <label style={{fontSize:12,color:"#666",fontWeight:600,display:"block",marginBottom:6}}>CULTIVO</label>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7,marginBottom:14}}>
+          {CULTIVOS.map(c=>(
+            <button key={c.id} onClick={()=>setEditando({...editando,cultivo:c.id})}
+              style={{padding:"9px 2px",borderRadius:10,border:`2px solid ${editando.cultivo===c.id?c.color:"#E8F5E9"}`,
+                background:editando.cultivo===c.id?c.color+"18":"#fff",cursor:"pointer",fontSize:12,fontWeight:600,
+                color:editando.cultivo===c.id?c.color:"#555"}}>
+              {c.emoji} {c.nombre}
+            </button>
+          ))}
+        </div>
+
+        <label style={{fontSize:12,color:"#666",fontWeight:600,display:"block",marginBottom:6}}>QUIÉN PAGÓ</label>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>
+          {SOCIOS.map(s=>(
+            <button key={s} onClick={()=>setEditando({...editando,socio:s})}
+              style={{padding:11,borderRadius:10,border:`2px solid ${editando.socio===s?"#2D6A4F":"#E8F5E9"}`,
+                background:editando.socio===s?"#E8F5E9":"#fff",cursor:"pointer",fontWeight:700,
+                color:editando.socio===s?"#2D6A4F":"#555"}}>
+              💼 {s}
+            </button>
+          ))}
+        </div>
+
+        <label style={{fontSize:12,color:"#666",fontWeight:600,display:"block",marginBottom:6}}>MONTO (C$)</label>
+        <input type="number" inputMode="decimal" value={editando.montoStr}
+          onChange={e=>setEditando({...editando,montoStr:e.target.value})} placeholder="0.00"
+          style={{width:"100%",padding:"13px 14px",borderRadius:10,border:"2px solid #E8F5E9",
+            fontSize:26,fontWeight:700,color:"#1B4332",outline:"none",background:"#FAFFF9",marginBottom:12}}/>
+
+        <label style={{fontSize:12,color:"#666",fontWeight:600,display:"block",marginBottom:6}}>DESCRIPCIÓN</label>
+        <input type="text" value={editando.descripcion}
+          onChange={e=>setEditando({...editando,descripcion:e.target.value})}
+          placeholder="Descripción..."
+          style={{width:"100%",padding:"11px 14px",borderRadius:10,border:"2px solid #E8F5E9",
+            fontSize:14,color:"#333",outline:"none",marginBottom:18}}/>
+
+        <button onClick={guardarEdicion}
+          style={{width:"100%",padding:15,borderRadius:12,border:"none",
+            background:"linear-gradient(135deg,#2D6A4F,#52B788)",
+            color:"#fff",fontSize:16,fontWeight:700,cursor:"pointer"}}>
+          💾 Guardar Cambios
+        </button>
+      </div>}
+
+      {/* ══ HISTORIAL ══ */}
+      {vista==="historial"&&<>
+        {/* Buscador por fecha/texto */}
+        <div style={{marginBottom:8,position:"relative",display:"flex",alignItems:"center"}}>
+          <span style={{position:"absolute",left:11,fontSize:16,color:"#52B788",pointerEvents:"none"}}>🔍</span>
+          <input value={busqueda} onChange={e=>setBusqueda(e.target.value)}
+            placeholder="Buscar por fecha ej: 10/06/26"
+            style={{width:"100%",padding:"10px 36px 10px 36px",borderRadius:10,border:"2px solid #95D5B2",
+              fontSize:13,color:"#333",outline:"none",boxSizing:"border-box",background:"#fff"}}/>
+          {busqueda&&<button onClick={()=>setBusqueda("")}
+            style={{position:"absolute",right:10,background:"none",border:"none",cursor:"pointer",fontSize:16,color:"#aaa"}}>✕</button>}
+        </div>
+        {/* Filtro por socio */}
+        <div style={{display:"flex",gap:7,marginBottom:8}}>
+          {[["todos","Todos","#2D6A4F"],["Jhacson","💼 Jhacson","#2D6A4F"],["Harol","💼 Harol","#52B788"]].map(([val,lbl,color])=>(
+            <button key={val} onClick={()=>setFiltroSocio(val)}
+              style={{flex:1,padding:"7px 4px",borderRadius:20,border:"none",cursor:"pointer",fontSize:12,fontWeight:700,
+                background:filtroSocio===val?color:"#E8F5E9",color:filtroSocio===val?"#fff":color}}>
+              {lbl}
+            </button>
+          ))}
+        </div>
+        {/* Filtro por cultivo */}
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
+          <button onClick={()=>setFiltro("todos")}
+            style={{padding:"5px 11px",borderRadius:20,border:"none",cursor:"pointer",fontSize:12,fontWeight:600,
+              background:filtro==="todos"?"#2D6A4F":"#E8F5E9",color:filtro==="todos"?"#fff":"#2D6A4F"}}>Todos</button>
+          {CULTIVOS.map(c=>(
+            <button key={c.id} onClick={()=>setFiltro(c.id)}
+              style={{padding:"5px 11px",borderRadius:20,border:"none",cursor:"pointer",fontSize:12,fontWeight:600,
+                background:filtro===c.id?c.color:"#E8F5E9",color:filtro===c.id?"#fff":"#555"}}>
+              {c.emoji} {c.nombre}
+            </button>
+          ))}
+        </div>
+        {filtrados.length===0
+          ?<div style={{textAlign:"center",padding:40,color:"#aaa"}}><div style={{fontSize:40}}>📋</div><div style={{marginTop:8}}>No hay registros</div></div>
+          :filtrados.map(g=>{
+            const c=cul(g.cultivo);
+            const fecha=new Date(g.fecha).toLocaleDateString("es-NI",{day:"2-digit",month:"short",year:"numeric"});
+            return<div key={g.id} style={{background:"#fff",borderRadius:12,padding:"13px 14px",marginBottom:7,
+              boxShadow:"0 1px 4px rgba(0,0,0,.06)",borderLeft:`4px solid ${c.color}`}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                <div style={{flex:1}}>
+                  <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:3}}>
+                    <span style={{fontSize:17}}>{c.emoji}</span>
+                    <span style={{fontWeight:700,color:"#1B4332"}}>{c.nombre}</span>
+                    <span style={{fontSize:11,background:"#E8F5E9",color:"#2D6A4F",padding:"2px 7px",borderRadius:10,fontWeight:600}}>{g.socio}</span>
+                  </div>
+                  <div style={{fontSize:13,color:"#666",marginBottom:2}}>{g.descripcion}</div>
+                  <div style={{fontSize:11,color:"#aaa"}}>{fecha}</div>
+                </div>
+                <div style={{textAlign:"right",display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
+                  <div style={{fontWeight:800,fontSize:16,color:c.color}}>{fmt(g.monto)}</div>
+                  <div style={{display:"flex",gap:6}}>
+                    <button onClick={()=>abrirEditar(g)}
+                      style={{background:"#EEF7FF",border:"none",borderRadius:7,padding:"4px 9px",cursor:"pointer",fontSize:13,color:"#2980B9",fontWeight:700}}>
+                      ✏️
+                    </button>
+                    <button onClick={()=>borrar(g.id)}
+                      style={{background:"none",border:"none",cursor:"pointer",fontSize:15,opacity:.4}}>
+                      🗑️
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>;
+          })
+        }
+      </>}
+
+      {/* ══ TAREAS ══ */}
+      {vista==="tareas"&&<>
+        {/* Alertas de tareas próximas */}
+        {tareas.filter(t=>!t.completada&&t.fecha&&(new Date(t.fecha)-new Date())/(1000*60*60*24)<=3&&(new Date(t.fecha)-new Date())>=0).length>0&&
+          <div style={{background:"#FFF3CD",borderRadius:12,padding:"10px 14px",marginBottom:12,borderLeft:"4px solid #F5A623"}}>
+            <div style={{fontWeight:700,color:"#856404",fontSize:13}}>⚠️ Tareas próximas (en 3 días o menos)</div>
+            {tareas.filter(t=>!t.completada&&t.fecha&&(new Date(t.fecha)-new Date())/(1000*60*60*24)<=3&&(new Date(t.fecha)-new Date())>=0).map(t=>(
+              <div key={t.id} style={{fontSize:12,color:"#856404",marginTop:4}}>• {t.titulo} — {new Date(t.fecha).toLocaleDateString("es-NI",{day:"2-digit",month:"short"})}</div>
+            ))}
+          </div>
+        }
+        {/* Tareas vencidas */}
+        {tareas.filter(t=>!t.completada&&t.fecha&&new Date(t.fecha)<new Date()).length>0&&
+          <div style={{background:"#FFE5E5",borderRadius:12,padding:"10px 14px",marginBottom:12,borderLeft:"4px solid #E74C3C"}}>
+            <div style={{fontWeight:700,color:"#C0392B",fontSize:13}}>🔴 Tareas vencidas</div>
+            {tareas.filter(t=>!t.completada&&t.fecha&&new Date(t.fecha)<new Date()).map(t=>(
+              <div key={t.id} style={{fontSize:12,color:"#C0392B",marginTop:4}}>• {t.titulo} — {new Date(t.fecha).toLocaleDateString("es-NI",{day:"2-digit",month:"short"})}</div>
+            ))}
+          </div>
+        }
+
+        <button onClick={()=>setMostrarFormTarea(!mostrarFormTarea)}
+          style={{width:"100%",padding:13,borderRadius:12,border:"none",marginBottom:12,
+            background:"linear-gradient(135deg,#2D6A4F,#52B788)",color:"#fff",fontSize:15,fontWeight:700,cursor:"pointer"}}>
+          {mostrarFormTarea?"✕ Cancelar":"➕ Nueva tarea / proyecto"}
+        </button>
+
+        {mostrarFormTarea&&<div style={{...card,marginBottom:12}}>
+          <div style={{fontWeight:700,color:"#1B4332",marginBottom:12}}>Nueva Tarea</div>
+          {[
+            ["Título / descripción",nuevaTarea.titulo,(v)=>setNuevaTarea({...nuevaTarea,titulo:v}),"text"],
+            ["Fecha programada",nuevaTarea.fecha,(v)=>setNuevaTarea({...nuevaTarea,fecha:v}),"date"],
+          ].map(([lbl,val,fn,type])=>(
+            <div key={lbl} style={{marginBottom:10}}>
+              <div style={{fontSize:12,color:"#888",marginBottom:4}}>{lbl}</div>
+              <input type={type} value={val} onChange={e=>fn(e.target.value)}
+                style={{width:"100%",padding:"9px 12px",borderRadius:9,border:"2px solid #E8F5E9",fontSize:14,outline:"none"}}/>
+            </div>
+          ))}
+          <div style={{marginBottom:10}}>
+            <div style={{fontSize:12,color:"#888",marginBottom:4}}>Categoría</div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {[["finca","🌿 Finca"],["siembra","🌱 Siembra"],["mantenimiento","🔧 Mantenimiento"],["ganado","🐄 Ganado"],["otro","📌 Otro"]].map(([v,l])=>(
+                <button key={v} onClick={()=>setNuevaTarea({...nuevaTarea,categoria:v})}
+                  style={{padding:"5px 10px",borderRadius:20,border:"none",cursor:"pointer",fontSize:12,fontWeight:600,
+                    background:nuevaTarea.categoria===v?"#2D6A4F":"#E8F5E9",color:nuevaTarea.categoria===v?"#fff":"#555"}}>
+                  {l}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:12,color:"#888",marginBottom:4}}>Notas (opcional)</div>
+            <textarea value={nuevaTarea.notas} onChange={e=>setNuevaTarea({...nuevaTarea,notas:e.target.value})}
+              rows={2} style={{width:"100%",padding:"9px 12px",borderRadius:9,border:"2px solid #E8F5E9",fontSize:13,outline:"none",resize:"none"}}/>
+          </div>
+          <button onClick={()=>{
+            if(!nuevaTarea.titulo)return;
+            const t={id:Date.now(),...nuevaTarea,completada:false,creada:new Date().toISOString()};
+            updTareas([t,...tareas]);
+            setNuevaTarea({titulo:"",fecha:"",categoria:"finca",notas:""});
+            setMostrarFormTarea(false);
+            ok("✅ Tarea guardada");
+          }} style={{width:"100%",padding:12,borderRadius:11,border:"none",
+            background:"linear-gradient(135deg,#2D6A4F,#52B788)",color:"#fff",fontSize:15,fontWeight:700,cursor:"pointer"}}>
+            💾 Guardar tarea
+          </button>
+        </div>}
+
+        {/* Lista de tareas pendientes */}
+        {tareas.filter(t=>!t.completada).length===0&&!mostrarFormTarea&&
+          <div style={{textAlign:"center",padding:40,color:"#aaa"}}>
+            <div style={{fontSize:40}}>📅</div>
+            <div style={{marginTop:8}}>No hay tareas pendientes</div>
+          </div>
+        }
+        {tareas.filter(t=>!t.completada).sort((a,b)=>a.fecha&&b.fecha?new Date(a.fecha)-new Date(b.fecha):a.fecha?-1:1).map(t=>{
+          const cat={finca:"🌿",siembra:"🌱",mantenimiento:"🔧",ganado:"🐄",otro:"📌"};
+          const diasRestantes=t.fecha?Math.ceil((new Date(t.fecha)-new Date())/(1000*60*60*24)):null;
+          const vencida=diasRestantes!==null&&diasRestantes<0;
+          const proxima=diasRestantes!==null&&diasRestantes<=3&&diasRestantes>=0;
+          return<div key={t.id} style={{...card,borderLeft:`4px solid ${vencida?"#E74C3C":proxima?"#F5A623":"#52B788"}`,padding:"12px 14px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+              <div style={{flex:1}}>
+                <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:3}}>
+                  <span>{cat[t.categoria]||"📌"}</span>
+                  <span style={{fontWeight:700,color:"#1B4332",fontSize:14}}>{t.titulo}</span>
+                </div>
+                {t.fecha&&<div style={{fontSize:12,color:vencida?"#E74C3C":proxima?"#D4AC0D":"#888",fontWeight:600}}>
+                  📅 {new Date(t.fecha).toLocaleDateString("es-NI",{day:"2-digit",month:"long",year:"numeric"})}
+                  {diasRestantes!==null&&<span style={{marginLeft:6}}>
+                    {vencida?`(vencida hace ${Math.abs(diasRestantes)} días)`:diasRestantes===0?"(¡hoy!)":diasRestantes===1?"(mañana)":`(en ${diasRestantes} días)`}
+                  </span>}
+                </div>}
+                {t.notas&&<div style={{fontSize:12,color:"#777",marginTop:3}}>{t.notas}</div>}
+              </div>
+              <div style={{display:"flex",gap:6,marginLeft:8}}>
+                <button onClick={()=>{updTareas(tareas.map(x=>x.id===t.id?{...x,completada:true}:x));ok("✅ Tarea completada");}}
+                  style={{background:"#E8F5E9",border:"none",borderRadius:8,padding:"6px 8px",cursor:"pointer",fontSize:14}}>✅</button>
+                <button onClick={()=>{updTareas(tareas.filter(x=>x.id!==t.id));ok("🗑️ Tarea eliminada");}}
+                  style={{background:"#FFF0F0",border:"none",borderRadius:8,padding:"6px 8px",cursor:"pointer",fontSize:14}}>🗑️</button>
+              </div>
+            </div>
+          </div>;
+        })}
+
+        {/* Tareas completadas */}
+        {tareas.filter(t=>t.completada).length>0&&<>
+          <div style={{fontWeight:700,color:"#888",fontSize:13,marginTop:8,marginBottom:8}}>✅ Completadas ({tareas.filter(t=>t.completada).length})</div>
+          {tareas.filter(t=>t.completada).map(t=>(
+            <div key={t.id} style={{background:"#F5F5F5",borderRadius:12,padding:"10px 14px",marginBottom:7,opacity:.7}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <span style={{fontSize:13,color:"#888",textDecoration:"line-through"}}>{t.titulo}</span>
+                <button onClick={()=>{updTareas(tareas.filter(x=>x.id!==t.id));}}
+                  style={{background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#ccc"}}>🗑️</button>
+              </div>
+            </div>
+          ))}
+        </>}
+      </>}
+
+      {/* ══ DEUDAS ══ */}
+      {vista==="deudas"&&<>
+        {/* Resumen total */}
+        {(()=>{
+          const deudasFiltradas=filtroPersona==="todos"?deudas:deudas.filter(d=>d.persona===filtroPersona);
+          const totalCOR=deudasFiltradas.reduce((a,d)=>{const ab=(d.abonos||[]).reduce((x,y)=>x+y.monto,0);return a+(d.monto-ab);},0);
+          const personas=[...new Set(deudas.map(d=>d.persona||"Mamá"))];
+          return<>
+            <div style={{background:"linear-gradient(135deg,#7B2D8B,#9B59B6)",borderRadius:16,padding:18,color:"#fff",marginBottom:10}}>
+              <div style={{fontSize:11,opacity:.7,letterSpacing:1,marginBottom:3}}>
+                DEUDA TOTAL{filtroPersona!=="todos"?` CON ${filtroPersona.toUpperCase()}`:""}
+              </div>
+              <div style={{fontSize:32,fontWeight:800}}>{fmt(totalCOR)}</div>
+              <div style={{fontSize:14,opacity:.85,marginTop:4,fontWeight:600}}>
+                ≈ ${(totalCOR/tipoCambio).toLocaleString("es-NI",{minimumFractionDigits:2,maximumFractionDigits:2})} USD
+              </div>
+              <div style={{fontSize:11,opacity:.6,marginTop:2}}>TC: 1 USD = C$ {tipoCambio}</div>
+              <div style={{fontSize:12,opacity:.7,marginTop:4}}>{deudasFiltradas.length} préstamos pendientes</div>
+            </div>
+            {/* Filtro por persona */}
+            {personas.length>1&&<div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
+              <button onClick={()=>setFiltroPersona("todos")}
+                style={{padding:"5px 12px",borderRadius:20,border:"none",cursor:"pointer",fontSize:12,fontWeight:700,
+                  background:filtroPersona==="todos"?"#9B59B6":"#F0E6FF",color:filtroPersona==="todos"?"#fff":"#7B2D8B"}}>
+                Todos
+              </button>
+              {personas.map(p=>(
+                <button key={p} onClick={()=>setFiltroPersona(p)}
+                  style={{padding:"5px 12px",borderRadius:20,border:"none",cursor:"pointer",fontSize:12,fontWeight:700,
+                    background:filtroPersona===p?"#9B59B6":"#F0E6FF",color:filtroPersona===p?"#fff":"#7B2D8B"}}>
+                  {p}
+                </button>
+              ))}
+            </div>}
+          </>;
+        })()}
+
+        {/* Botón agregar */}
+        <button onClick={()=>setMostrarFormDeuda(!mostrarFormDeuda)}
+          style={{width:"100%",padding:13,borderRadius:12,border:"none",marginBottom:12,
+            background:"linear-gradient(135deg,#7B2D8B,#9B59B6)",color:"#fff",fontSize:15,fontWeight:700,cursor:"pointer"}}>
+          {mostrarFormDeuda?"✕ Cancelar":"➕ Registrar nuevo préstamo"}
+        </button>
+
+        {/* Formulario nueva deuda */}
+        {mostrarFormDeuda&&<div style={{...card,marginBottom:12}}>
+          <div style={{fontWeight:700,color:"#1B4332",marginBottom:12}}>Nuevo préstamo</div>
+          <div style={{marginBottom:10}}>
+            <div style={{fontSize:12,color:"#888",marginBottom:4}}>¿Quién te prestó?</div>
+            <input value={nuevaDeuda.persona} onChange={e=>setNuevaDeuda({...nuevaDeuda,persona:e.target.value})}
+              placeholder="Ej: Mamá, Papá, Juan..."
+              style={{width:"100%",padding:"9px 12px",borderRadius:9,border:"2px solid #E8F5E9",fontSize:14,outline:"none"}}/>
+          </div>
+          <div style={{marginBottom:10}}>
+            <div style={{fontSize:12,color:"#888",marginBottom:4}}>¿Para qué fue? (descripción)</div>
+            <input value={nuevaDeuda.descripcion} onChange={e=>setNuevaDeuda({...nuevaDeuda,descripcion:e.target.value})}
+              placeholder="Ej: Pago de trabajadores chapoda"
+              style={{width:"100%",padding:"9px 12px",borderRadius:9,border:"2px solid #E8F5E9",fontSize:14,outline:"none"}}/>
+          </div>
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:12,color:"#888",marginBottom:4}}>Monto y moneda</div>
+            <div style={{display:"flex",gap:6}}>
+              <input type="number" value={nuevaDeuda.monto} onChange={e=>setNuevaDeuda({...nuevaDeuda,monto:e.target.value})}
+                placeholder="0.00"
+                style={{flex:1,padding:"9px 12px",borderRadius:9,border:"2px solid #E8F5E9",fontSize:14,outline:"none"}}/>
+              <div style={{display:"flex",borderRadius:9,overflow:"hidden",border:"2px solid #D8B4FE"}}>
+                {[["COR","C$"],["USD","$"]].map(([v,l])=>(
+                  <button key={v} onClick={()=>setNuevaDeuda({...nuevaDeuda,moneda:v})}
+                    style={{padding:"9px 12px",border:"none",cursor:"pointer",fontSize:13,fontWeight:700,
+                      background:nuevaDeuda.moneda===v?"#9B59B6":"#FAF5FF",
+                      color:nuevaDeuda.moneda===v?"#fff":"#9B59B6"}}>{l}</button>
+                ))}
+              </div>
+            </div>
+            {nuevaDeuda.moneda==="USD"&&nuevaDeuda.monto&&<div style={{fontSize:11,color:"#7B2D8B",marginTop:4}}>
+              = C$ {(parseFloat(nuevaDeuda.monto||0)*tipoCambio).toLocaleString("es-NI",{minimumFractionDigits:2})} (TC: {tipoCambio})
+            </div>}
+          </div>
+          <button onClick={()=>{
+            if(!nuevaDeuda.descripcion||!nuevaDeuda.monto||isNaN(parseFloat(nuevaDeuda.monto)))return;
+            const montoOrig=parseFloat(nuevaDeuda.monto);
+            const montoCOR=nuevaDeuda.moneda==="USD"?montoOrig*tipoCambio:montoOrig;
+            const d={id:Date.now(),descripcion:nuevaDeuda.descripcion,
+              persona:nuevaDeuda.persona||"Mamá",
+              monto:montoCOR,montoOrig,moneda:nuevaDeuda.moneda,tcUsado:tipoCambio,
+              fecha:new Date().toISOString()};
+            updDeudas([d,...deudas]);
+            setNuevaDeuda({descripcion:"",monto:"",moneda:"COR",persona:nuevaDeuda.persona||"Mamá"});
+            setMostrarFormDeuda(false);
+            ok("✅ Préstamo registrado");
+          }} style={{width:"100%",padding:12,borderRadius:11,border:"none",
+            background:"linear-gradient(135deg,#7B2D8B,#9B59B6)",color:"#fff",fontSize:15,fontWeight:700,cursor:"pointer"}}>
+            💾 Guardar
+          </button>
+        </div>}
+
+        {/* Lista de deudas pendientes */}
+        {deudas.length===0&&!mostrarFormDeuda&&
+          <div style={{textAlign:"center",padding:40,color:"#aaa"}}>
+            <div style={{fontSize:40}}>💜</div>
+            <div style={{marginTop:8}}>No hay deudas pendientes</div>
+          </div>
+        }
+        {deudas.filter(d=>filtroPersona==="todos"||(d.persona||"Mamá")===filtroPersona).map(d=>{
+          const fecha=new Date(d.fecha).toLocaleDateString("es-NI",{day:"2-digit",month:"short",year:"numeric"});
+          const totalAbonado=(d.abonos||[]).reduce((a,x)=>a+x.monto,0);
+          const pendiente=d.monto-totalAbonado;
+          const abonando=abonoDeuda[d.id]||"";
+          return<div key={d.id} style={{...card,borderLeft:"4px solid #9B59B6",padding:"12px 14px"}}>
+            <div style={{marginBottom:8}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:2}}>
+                <div style={{fontWeight:700,color:"#1B4332",fontSize:14}}>{d.descripcion}</div>
+                <span style={{fontSize:11,background:"#F0E6FF",color:"#7B2D8B",padding:"2px 8px",borderRadius:10,fontWeight:700}}>
+                  {d.persona||"Mamá"}
+                </span>
+              </div>
+              <div style={{fontSize:11,color:"#aaa",marginBottom:6}}>📅 {fecha}</div>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:13}}>
+                <span style={{color:"#888"}}>Préstamo original:</span>
+                <span style={{fontWeight:600}}>{fmt(d.monto)}</span>
+              </div>
+              {totalAbonado>0&&<div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#2D6A4F"}}>
+                <span>Total abonado:</span>
+                <span style={{fontWeight:600}}>- {fmt(totalAbonado)}</span>
+              </div>}
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:15,marginTop:4,paddingTop:4,borderTop:"1px solid #EEE"}}>
+                <span style={{fontWeight:700,color:"#9B59B6"}}>Pendiente:</span>
+                <span style={{fontWeight:800,color:"#9B59B6"}}>{fmt(pendiente)}</span>
+              </div>
+            </div>
+
+            {/* Historial de abonos de esta deuda */}
+            {(d.abonos||[]).length>0&&<div style={{background:"#FAF5FF",borderRadius:8,padding:"8px 10px",marginBottom:8}}>
+              <div style={{fontSize:11,color:"#7B2D8B",fontWeight:700,marginBottom:4}}>Abonos realizados:</div>
+              {(d.abonos||[]).map((ab,i)=>(
+                <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"#555",marginBottom:2}}>
+                  <span>{new Date(ab.fecha).toLocaleDateString("es-NI",{day:"2-digit",month:"short",year:"numeric"})}</span>
+                  <span style={{fontWeight:600,color:"#2D6A4F"}}>- {fmt(ab.monto)}</span>
+                </div>
+              ))}
+            </div>}
+
+            {/* Campo para abonar */}
+            <div style={{marginBottom:4}}>
+              <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                <input type="number" value={abonando}
+                  onChange={e=>setAbonoDeuda({...abonoDeuda,[d.id]:e.target.value})}
+                  placeholder="Monto a abonar"
+                  style={{flex:1,padding:"8px 10px",borderRadius:9,border:"2px solid #D8B4FE",fontSize:13,outline:"none"}}/>
+                <div style={{display:"flex",borderRadius:9,overflow:"hidden",border:"2px solid #D8B4FE"}}>
+                  {[["COR","C$"],["USD","$"]].map(([v,l])=>(
+                    <button key={v} onClick={()=>setAbonoMoneda({...abonoMoneda,[d.id]:v})}
+                      style={{padding:"8px 10px",border:"none",cursor:"pointer",fontSize:12,fontWeight:700,
+                        background:(abonoMoneda[d.id]||"COR")===v?"#9B59B6":"#FAF5FF",
+                        color:(abonoMoneda[d.id]||"COR")===v?"#fff":"#9B59B6"}}>{l}</button>
+                  ))}
+                </div>
+                <button onClick={()=>{
+                  const mAbono=parseFloat(abonando);
+                  if(!abonando||isNaN(mAbono)||mAbono<=0)return;
+                  const monedaAbono=abonoMoneda[d.id]||"COR";
+                  const mAbonoCOR=monedaAbono==="USD"?mAbono*tipoCambio:mAbono;
+                  let restante=mAbonoCOR;
+                  let nuevasDeudas=[...deudas];
+                  let nuevosPagados=[...pagados];
+                  const indiceActual=nuevasDeudas.findIndex(x=>x.id===d.id);
+                  const ordenadas=[nuevasDeudas[indiceActual],...nuevasDeudas.filter((_,i)=>i!==indiceActual)];
+                  const idsASaldar=[];
+                  const detalleTransaccion=[];
+                  for(let i=0;i<ordenadas.length&&restante>0;i++){
+                    const deuda=ordenadas[i];
+                    const abonado=(deuda.abonos||[]).reduce((a,x)=>a+x.monto,0);
+                    const pend=deuda.monto-abonado;
+                    if(pend<=0)continue;
+                    const aplicar=Math.min(restante,pend);
+                    const nuevosAbonos=[...(deuda.abonos||[]),{monto:aplicar,fecha:new Date().toISOString()}];
+                    const nuevoPend=deuda.monto-nuevosAbonos.reduce((a,x)=>a+x.monto,0);
+                    restante=parseFloat((restante-aplicar).toFixed(2));
+                    detalleTransaccion.push({descripcion:deuda.descripcion,aplicado:aplicar,saldada:nuevoPend<=0});
+                    nuevasDeudas=nuevasDeudas.map(x=>x.id===deuda.id?{...x,abonos:nuevosAbonos}:x);
+                    if(nuevoPend<=0)idsASaldar.push(deuda.id);
+                  }
+                  idsASaldar.forEach(id=>{
+                    const saldada=nuevasDeudas.find(x=>x.id===id);
+                    if(saldada)nuevosPagados=[saldada,...nuevosPagados];
+                  });
+                  nuevasDeudas=nuevasDeudas.filter(x=>!idsASaldar.includes(x.id));
+                  const transaccion={
+                    id:Date.now(),fecha:new Date().toISOString(),
+                    totalPagado:mAbonoCOR,montoOrig:mAbono,moneda:monedaAbono,tcUsado:monedaAbono==="USD"?tipoCambio:null,
+                    detalle:detalleTransaccion
+                  };
+                  nuevosPagados=[transaccion,...nuevosPagados.filter(x=>!idsASaldar.includes(x.id)),...nuevosPagados.filter(x=>idsASaldar.includes(x.id))];
+                  updDeudas(nuevasDeudas);
+                  updPagados(nuevosPagados);
+                  setAbonoDeuda({...abonoDeuda,[d.id]:""});
+                  ok(`✅ ${monedaAbono==="USD"?`$${mAbono} = C$ ${mAbonoCOR.toFixed(2)}`:`C$ ${mAbonoCOR}`} distribuido`);
+                }} style={{padding:"8px 12px",borderRadius:9,border:"none",
+                  background:"linear-gradient(135deg,#7B2D8B,#9B59B6)",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
+                  💸 Abonar
+                </button>
+              </div>
+              {abonando&&(abonoMoneda[d.id]||"COR")==="USD"&&<div style={{fontSize:11,color:"#7B2D8B",marginTop:3}}>
+                = C$ {(parseFloat(abonando||0)*tipoCambio).toLocaleString("es-NI",{minimumFractionDigits:2})} (TC: {tipoCambio})
+              </div>}
+            </div>
+          </div>;
+        })}
+
+        {/* Historial de pagados */}
+        <div style={{marginTop:16}}>
+          <button onClick={()=>setVerPagados(!verPagados)}
+            style={{width:"100%",padding:11,borderRadius:11,border:"2px solid #D8B4FE",
+              background:"#FAF5FF",color:"#7B2D8B",fontSize:14,fontWeight:700,cursor:"pointer",marginBottom:8}}>
+            {verPagados?"▲ Ocultar":"▼ Ver historial de pagados"} ({pagados.length})
+          </button>
+
+          {verPagados&&<>
+            {pagados.length===0
+              ?<div style={{textAlign:"center",padding:20,color:"#aaa",fontSize:13}}>No hay pagos registrados aún</div>
+              :pagados.map(p=>{
+                const fechaPago=new Date(p.fecha||p.pagadoEl).toLocaleDateString("es-NI",{day:"2-digit",month:"short",year:"numeric"});
+                // Si es transacción con detalle
+                if(p.detalle){
+                  return<div key={p.id} style={{background:"#FAF5FF",borderRadius:12,padding:"12px 14px",marginBottom:7,borderLeft:"4px solid #9B59B6"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                      <div>
+                        <div style={{fontSize:12,color:"#7B2D8B",fontWeight:700}}>💸 Pago realizado</div>
+                        <div style={{fontSize:11,color:"#aaa"}}>{fechaPago}</div>
+                      </div>
+                      <div style={{fontWeight:700,color:"#9B59B6",fontSize:13}}>💼 {p.moneda==="USD"?`$${p.montoOrig} USD`:`C$ ${p.montoOrig}`}</div>
+                        {p.moneda==="USD"&&<div style={{fontSize:10,color:"#aaa"}}>= {fmt(p.totalPagado)} (TC: {p.tcUsado})</div>}
+                    </div>
+                    <div style={{borderTop:"1px solid #E9D5FF",paddingTop:6}}>
+                      <div style={{fontSize:11,color:"#7B2D8B",fontWeight:700,marginBottom:4}}>Se distribuyó así:</div>
+                      {p.detalle.map((det,i)=>(
+                        <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12,marginBottom:3}}>
+                          <span style={{color:"#555",flex:1}}>
+                            {det.saldada?"✅":"➡️"} {det.descripcion}
+                            {det.saldada&&<span style={{fontSize:10,color:"#2D6A4F",fontWeight:700}}> (SALDADA)</span>}
+                          </span>
+                          <span style={{fontWeight:700,color:"#9B59B6",marginLeft:8}}>{fmt(det.aplicado)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>;
+                }
+                // Formato antiguo (compatibilidad)
+                return<div key={p.id} style={{background:"#FAF5FF",borderRadius:12,padding:"10px 14px",marginBottom:7,borderLeft:"4px solid #D8B4FE"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div>
+                      <div style={{fontSize:13,color:"#555",fontWeight:600}}>{p.descripcion}</div>
+                      <div style={{fontSize:11,color:"#aaa"}}>Pagado el {fechaPago}</div>
+                    </div>
+                    <div style={{fontWeight:800,color:"#9B59B6",fontSize:15}}>{fmt(p.monto)}</div>
+                  </div>
+                </div>;
+              })
+            }
+            {pagados.length>0&&<button onClick={()=>{
+              if(window.confirm("¿Borrar todo el historial de pagados? Esta acción no se puede deshacer.")){
+                updPagados([]);ok("🗑️ Historial borrado");
+              }
+            }} style={{width:"100%",padding:11,borderRadius:11,border:"2px solid #E74C3C",
+              background:"#FFF0F0",color:"#C0392B",fontSize:13,fontWeight:700,cursor:"pointer",marginTop:6}}>
+              🗑️ Borrar todo el historial de pagados
+            </button>}
+          </>}
+        </div>
+      </>}
+
+      {/* ══ RESUMEN ══ */}
+      {vista==="resumen"&&<>
+        <div style={{background:"linear-gradient(135deg,#1B4332,#2D6A4F)",borderRadius:16,padding:18,color:"#fff",marginBottom:14}}>
+          <div style={{fontSize:12,opacity:.7,marginBottom:3}}>INVERSIÓN TOTAL</div>
+          <div style={{fontSize:30,fontWeight:800}}>{fmt(total)}</div>
+          <div style={{fontSize:12,opacity:.7,marginTop:3}}>{gastos.length} movimientos registrados</div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
+          {[{s:"Jhacson",c:"#2D6A4F"},{s:"Harol",c:"#52B788"}].map(({s,c})=>(
+            <div key={s} style={card}>
+              <div style={{fontSize:12,color:"#888"}}>💼 {s}</div>
+              <div style={{fontSize:20,fontWeight:800,color:c,marginTop:3}}>{fmt(totSocio(s))}</div>
+              <div style={{fontSize:11,color:"#aaa"}}>{total>0?(totSocio(s)/total*100).toFixed(1):50}% del total</div>
+            </div>
+          ))}
+        </div>
+        <div style={{fontWeight:700,color:"#2D6A4F",marginBottom:8}}>Desglose por cultivo</div>
+        {CULTIVOS.map(c=>{
+          const t=gastos.filter(g=>g.cultivo===c.id).reduce((a,g)=>a+g.monto,0);
+          const j=gastos.filter(g=>g.cultivo===c.id&&g.socio==="Jhacson").reduce((a,g)=>a+g.monto,0);
+          const h=gastos.filter(g=>g.cultivo===c.id&&g.socio==="Harol").reduce((a,g)=>a+g.monto,0);
+          const count=gastos.filter(g=>g.cultivo===c.id).length;
+          return<div key={c.id} style={card}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+              <span style={{fontWeight:700}}>{c.emoji} {c.nombre}</span>
+              <div style={{display:"flex",alignItems:"center",gap:7}}>
+                <span style={{fontWeight:800,color:c.color}}>{fmt(t)}</span>
+                {count>0&&confirmar!==c.id&&(
+                  <button onClick={()=>setConfirmar(c.id)}
+                    style={{background:"#FFF0F0",border:"1px solid #FFAAAA",borderRadius:7,
+                      color:"#C0392B",fontSize:11,fontWeight:700,padding:"3px 7px",cursor:"pointer"}}>
+                    🗑️ Cerrar ciclo
+                  </button>
+                )}
+              </div>
+            </div>
+            {confirmar===c.id&&<div style={{background:"#FFF5F5",border:"1px solid #FFAAAA",borderRadius:10,padding:11,marginBottom:10}}>
+              <div style={{fontSize:13,color:"#C0392B",fontWeight:600,marginBottom:8}}>⚠️ ¿Eliminar {count} registros de {c.nombre}? ({fmt(t)})</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
+                <button onClick={()=>borrarCiclo(c.id)} style={{padding:"8px",borderRadius:8,border:"none",background:"#E74C3C",color:"#fff",fontWeight:700,cursor:"pointer"}}>Sí, eliminar</button>
+                <button onClick={()=>setConfirmar(null)} style={{padding:"8px",borderRadius:8,border:"1px solid #ccc",background:"#fff",color:"#555",fontWeight:700,cursor:"pointer"}}>Cancelar</button>
+              </div>
+            </div>}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginBottom:8}}>
+              <div style={{background:"#F0FFF4",borderRadius:8,padding:"8px 10px"}}>
+                <div style={{fontSize:11,color:"#888"}}>Jhacson</div>
+                <div style={{fontWeight:700,color:"#2D6A4F"}}>{fmt(j)}</div>
+              </div>
+              <div style={{background:"#F0FFF4",borderRadius:8,padding:"8px 10px"}}>
+                <div style={{fontSize:11,color:"#888"}}>Harol</div>
+                <div style={{fontWeight:700,color:"#52B788"}}>{fmt(h)}</div>
+              </div>
+            </div>
+            {count>0&&<button onClick={()=>setExpandido(expandido===c.id?null:c.id)}
+              style={{width:"100%",padding:"7px",borderRadius:8,border:"1px solid #D4EDDA",
+                background:expandido===c.id?"#E8F5E9":"#fff",color:"#2D6A4F",fontWeight:600,fontSize:12,cursor:"pointer"}}>
+              {expandido===c.id?"▲ Ocultar facturas":`▼ Ver ${count} factura${count>1?"s":""}`}
+            </button>}
+            {expandido===c.id&&<div style={{marginTop:8,borderTop:"1px solid #E8F5E9",paddingTop:8}}>
+              {gastos.filter(g=>g.cultivo===c.id).map((g,idx)=>{
+                const fecha=new Date(g.fecha).toLocaleDateString("es-NI",{day:"2-digit",month:"short",year:"numeric"});
+                return<div key={g.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+                  padding:"7px 9px",marginBottom:3,borderRadius:8,
+                  background:idx%2===0?"#F9FFF9":"#fff",borderLeft:`3px solid ${c.color}`}}>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:12,fontWeight:600,color:"#1B4332"}}>{g.descripcion}</div>
+                    <div style={{fontSize:11,color:"#aaa"}}>{fecha} · {g.socio}</div>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                    <span style={{fontWeight:700,color:c.color,fontSize:13}}>{fmt(g.monto)}</span>
+                    <button onClick={()=>abrirEditar(g)}
+                      style={{background:"#EEF7FF",border:"none",borderRadius:6,padding:"3px 7px",cursor:"pointer",fontSize:12,color:"#2980B9",fontWeight:700}}>✏️</button>
+                    <button onClick={()=>borrar(g.id)} style={{background:"none",border:"none",cursor:"pointer",fontSize:13,opacity:.35}}>🗑️</button>
+                  </div>
+                </div>;
+              })}
+              <div style={{display:"flex",justifyContent:"space-between",padding:"7px 9px",marginTop:3,
+                background:"#E8F5E9",borderRadius:8,fontWeight:700}}>
+                <span style={{color:"#2D6A4F"}}>Total {c.nombre}</span>
+                <span style={{color:c.color}}>{fmt(t)}</span>
+              </div>
+            </div>}
+          </div>;
+        })}
+      </>}
+
+      {/* ══ AJUSTES ══ */}
+      {vista==="ajustes"&&<>
+        <div style={{background:"#fff",borderRadius:16,padding:18,boxShadow:"0 2px 12px rgba(0,0,0,.08)",marginBottom:14}}>
+          <div style={{fontWeight:700,fontSize:16,color:"#1B4332",marginBottom:6}}>💱 Tipo de Cambio (USD → C$)</div>
+          <div style={{fontSize:13,color:"#666",marginBottom:12}}>
+            Se usa para convertir deudas y abonos en dólares a córdobas.
+          </div>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <span style={{fontSize:13,color:"#888",whiteSpace:"nowrap"}}>1 USD =</span>
+            <input type="number" value={tipoCambio}
+              onChange={e=>saveTipoCambio(parseFloat(e.target.value)||36.50)}
+              style={{flex:1,padding:"10px 12px",borderRadius:9,border:"2px solid #95D5B2",fontSize:16,fontWeight:700,color:"#2D6A4F",outline:"none"}}/>
+            <span style={{fontSize:13,color:"#888"}}>C$</span>
+          </div>
+          <div style={{fontSize:11,color:"#aaa",marginTop:8}}>Valor actual: 1 USD = C$ {tipoCambio}</div>
+        </div>
+        <div style={{background:"#fff",borderRadius:16,padding:18,boxShadow:"0 2px 12px rgba(0,0,0,.08)",marginBottom:14}}>
+          <div style={{fontWeight:700,fontSize:16,color:"#1B4332",marginBottom:6}}>🔑 API Key — Escaneo de Facturas</div>
+          <div style={{fontSize:13,color:"#666",marginBottom:14,lineHeight:1.6}}>
+            Para leer facturas automáticamente necesitas una API Key de Anthropic. Se guarda solo en tu teléfono.
+          </div>
+          <label style={{fontSize:12,color:"#666",fontWeight:600,display:"block",marginBottom:6}}>TU API KEY</label>
+          <div style={{position:"relative",marginBottom:10}}>
+            <input type={verKey?"text":"password"} value={apiKey}
+              onChange={e=>{setApiKey(e.target.value);try{localStorage.setItem("ga_ak",e.target.value);}catch{}}}
+              placeholder="sk-ant-api03-..."
+              style={{width:"100%",padding:"12px 44px 12px 14px",borderRadius:10,border:"2px solid #E8F5E9",fontSize:14,color:"#333",outline:"none"}}/>
+            <button onClick={()=>setVerKey(!verKey)}
+              style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",fontSize:18}}>
+              {verKey?"🙈":"👁️"}
+            </button>
+          </div>
+          {apiKey
+            ?<div style={{padding:"10px 14px",borderRadius:8,background:"#E8F5E9",color:"#2D6A4F",fontSize:13,fontWeight:600}}>✅ API Key guardada — escaneo activo</div>
+            :<div style={{padding:"10px 14px",borderRadius:8,background:"#FFF3CD",color:"#856404",fontSize:13}}>⚠️ Sin API Key el escaneo no funciona. Puedes ingresar montos manualmente.</div>
+          }
+        </div>
+        <div style={{background:"#fff",borderRadius:16,padding:18,boxShadow:"0 2px 12px rgba(0,0,0,.08)",marginBottom:14}}>
+          <div style={{fontWeight:700,fontSize:16,color:"#1B4332",marginBottom:6}}>💾 Respaldo de Datos</div>
+          <div style={{fontSize:13,color:"#666",marginBottom:14,lineHeight:1.6}}>
+            Tenés <strong>{gastos.length} registros</strong> guardados.
+          </div>
+          <button onClick={exportarJSON}
+            style={{width:"100%",padding:13,borderRadius:11,border:"none",marginBottom:10,
+              background:"linear-gradient(135deg,#2D6A4F,#52B788)",color:"#fff",fontSize:15,fontWeight:700,cursor:"pointer"}}>
+            💾 Exportar para restaurar (.json)
+          </button>
+          <button onClick={exportarTXT}
+            style={{width:"100%",padding:13,borderRadius:11,border:"none",marginBottom:10,
+              background:"linear-gradient(135deg,#1B4332,#2D6A4F)",color:"#fff",fontSize:15,fontWeight:700,cursor:"pointer"}}>
+            📄 Exportar para leer (.txt)
+          </button>
+          <input type="file" accept=".json" ref={importRef} style={{display:"none"}}
+            onChange={e=>{if(e.target.files[0])importar(e.target.files[0]);}}/>
+          <button onClick={()=>importRef.current.click()}
+            style={{width:"100%",padding:13,borderRadius:11,border:"2px dashed #95D5B2",
+              background:"#F0FFF4",color:"#2D6A4F",fontSize:15,fontWeight:700,cursor:"pointer"}}>
+            📥 Restaurar desde archivo (.json)
+          </button>
+          {importMsg&&<div style={{marginTop:10,padding:"10px 14px",borderRadius:8,
+            background:importMsg.startsWith("✅")?"#E8F5E9":"#FFF3CD",
+            color:importMsg.startsWith("✅")?"#2D6A4F":"#856404",fontSize:13,fontWeight:600}}>
+            {importMsg}
+          </div>}
+        </div>
+        <div style={{background:"#fff",borderRadius:16,padding:18,boxShadow:"0 2px 12px rgba(0,0,0,.08)"}}>
+          <div style={{fontWeight:700,fontSize:15,color:"#1B4332",marginBottom:10}}>📋 Cómo obtener tu API Key</div>
+          <div style={{fontSize:13,color:"#555",lineHeight:1.8}}>
+            <div>1. Abre Safari → <strong>console.anthropic.com</strong></div>
+            <div>2. Crea cuenta gratis</div>
+            <div>3. Ve a <strong>API Keys</strong></div>
+            <div>4. Toca <strong>Create Key</strong></div>
+            <div>5. Copia y pega la key arriba ☝️</div>
+          </div>
+        </div>
+      </>}
+
+    </div>
+  </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
